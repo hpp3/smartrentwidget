@@ -142,17 +142,19 @@ public class SmartRentClient {
         Request request = new Request.Builder().url(uri).build();
         httpClient.newWebSocket(request, new WebSocketListener() {
             int counter = 0;
+            boolean failed = false;
             @Override
             public void onOpen(@NonNull WebSocket webSocket, @NonNull Response response) {
                 super.onOpen(webSocket, response);
                 Log.i("onOpen", joiner);
                 Log.i("onOpen", payload);
                 this.counter = 0;
+                this.failed = false;
                 webSocket.send(joiner);
                 webSocket.send(payload);
             }
 
-            private boolean isStatusOk(String message) {
+            private boolean isPhxReply(String message) {
                 try {
                     JSONArray jsonArray = new JSONArray(message);
                     if (jsonArray.length() < 5) {
@@ -165,15 +167,25 @@ public class SmartRentClient {
                     if (!thirdElement.startsWith("devices:") || !"phx_reply".equals(fourthElement)) {
                         return false;
                     }
-
-                    JSONObject jsonObject = jsonArray.getJSONObject(4);
-
-                    String status = jsonObject.optString("status");
-                    return "ok".equals(status);
-
                 } catch (JSONException e) {
                     e.printStackTrace();
                     return false;
+                }
+                return true;
+            }
+
+            private String getStatus(String message) {
+                try {
+                    JSONArray jsonArray = new JSONArray(message);
+                    if (jsonArray.length() < 5) {
+                        throw new RuntimeException("Not PHX reply");
+                    }
+                    JSONObject jsonObject = jsonArray.getJSONObject(4);
+                    return jsonObject.optString("status");
+
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                    throw new RuntimeException(e);
                 }
             }
 
@@ -181,10 +193,18 @@ public class SmartRentClient {
             public void onMessage(@NonNull WebSocket webSocket, @NonNull String text) {
                 super.onMessage(webSocket, text);
                 Log.i("onMessage", "onMessage: " + text);
-                if (isStatusOk(text)) {
-                    this.counter += 1;
-                    if (this.counter == 2) {
-                        success.run();
+                if (isPhxReply(text)) {
+                    String status = getStatus(text);
+                    if ("ok".equals(status)) {
+                        this.counter += 1;
+                        if (this.counter == 2) {
+                            success.run();
+                        }
+                    } else {
+                        if (!failed) {
+                            failure.run();
+                            failed = true;
+                        }
                     }
                 }
             }
@@ -192,7 +212,7 @@ public class SmartRentClient {
             @Override
             public void onFailure(@NonNull WebSocket webSocket, @NonNull Throwable t, Response response) {
                 super.onFailure(webSocket, t, response);
-                Log.i("onMessage", "failure: " + t + response);
+                Log.i("onFailure", "failure: " + t + response);
                 failure.run();
             }
         });

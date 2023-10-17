@@ -8,7 +8,7 @@
     <TextView
         android:id="@+id/textView"
         android:layout_width="match_parent"
-        android:layout_height="37dp"
+        android:layout_height="120dp"
         android:paddingTop="10sp"
         android:text="Nothing to see here. Go add my widget from the home screen!" />
 

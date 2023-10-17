@@ -1,7 +1,6 @@
 package com.hpp3.smartrentwidget;
 
 import android.app.Activity;
-import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
 import android.content.Context;
 import android.content.Intent;
@@ -10,17 +9,11 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.View;
-import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ListView;
-import android.widget.RemoteViews;
 import android.widget.TextView;
-
-import com.hpp3.smartrentwidget.R;
-import com.hpp3.smartrentwidget.SmartRentLock;
-import com.hpp3.smartrentwidget.WidgetClickedReceiver;
 
 import org.json.JSONException;
 
@@ -40,7 +33,7 @@ public class ConfigureWidgetActivity extends Activity {
     private Button loginButton;
     private ListView deviceListView;
     private TextView descTextView;
-    int mAppWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
+    int appWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
     private static final String TAG = "ConfigureWidgetActivity";
 
     private final Executor executor = Executors.newSingleThreadExecutor();
@@ -59,9 +52,9 @@ public class ConfigureWidgetActivity extends Activity {
         Intent intent = getIntent();
         Bundle extras = intent.getExtras();
         if (extras != null) {
-            mAppWidgetId = extras.getInt(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID);
+            appWidgetId = extras.getInt(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID);
         }
-        if (mAppWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) {
+        if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) {
             Log.i(TAG, "onCreate: appwidgetID is invalid");
             finish();
             return;
@@ -71,12 +64,7 @@ public class ConfigureWidgetActivity extends Activity {
         usernameEditText.setText(encryptedSharedPreferences.getString("username", ""));
         passwordEditText.setText(encryptedSharedPreferences.getString("password", ""));
 
-        loginButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                onLoginClicked(usernameEditText.getText().toString(), passwordEditText.getText().toString());
-            }
-        });
+        loginButton.setOnClickListener(view -> onLoginClicked(usernameEditText.getText().toString(), passwordEditText.getText().toString()));
     }
 
     private void populateDeviceList(List<SmartRentLock> devices) {
@@ -86,31 +74,20 @@ public class ConfigureWidgetActivity extends Activity {
         deviceListView.setVisibility(View.VISIBLE);
         Context ctx = this;
 
-        deviceListView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
-            @Override
-            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-                AppWidgetManager appWidgetManager = AppWidgetManager.getInstance(ctx);
-                Log.i(TAG, "onItemClick: appwidgetID " + mAppWidgetId);
-                SmartRentLock selectedDevice = devices.get(position);
+        deviceListView.setOnItemClickListener((parent, view, position, id) -> {
+            Log.i(TAG, "onItemClick: appwidgetID " + appWidgetId);
+            SmartRentLock selectedDevice = devices.get(position);
+            LockWidgetManager.saveLockConfiguration(ctx, appWidgetId, selectedDevice);
 
-                Intent resultValue = new Intent();
-                resultValue.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, mAppWidgetId);
+            Intent resultValue = new Intent();
+            resultValue.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId);
 
-                RemoteViews views = new RemoteViews(ctx.getPackageName(), R.layout.lock_widget);
-                views.setTextViewText(R.id.lockButton, selectedDevice.getNameShort());
-
-                Intent intent = new Intent(ctx, WidgetClickedReceiver.class);
-                intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, mAppWidgetId);
-                intent.putExtra("lock_name", selectedDevice.getNameShort());
-                intent.putExtra("lock_id", selectedDevice.getDeviceId());
-                PendingIntent pendingIntent = PendingIntent.getBroadcast(ctx, mAppWidgetId, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
-                views.setOnClickPendingIntent(R.id.lockButton, pendingIntent);
-
-                appWidgetManager.updateAppWidget(mAppWidgetId, views);
-                setResult(RESULT_OK, resultValue);
-                finish();
-            }
+            Intent intent = new Intent();
+            intent.setAction(AppWidgetManager.ACTION_APPWIDGET_UPDATE);
+            intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, new int[]{appWidgetId});
+            sendBroadcast(intent);
+            setResult(RESULT_OK, resultValue);
+            finish();
         });
     }
 
@@ -134,9 +111,7 @@ public class ConfigureWidgetActivity extends Activity {
                     }
                 }).collect(Collectors.toCollection(ArrayList::new));
                 Handler mainHandler = new Handler(Looper.getMainLooper());
-                mainHandler.post(() -> {
-                    populateDeviceList(locks);
-                });
+                mainHandler.post(() -> populateDeviceList(locks));
             } catch (SmartRentClient.InvalidAuthException | IOException | JSONException e) {
                 throw new RuntimeException(e);
             }
@@ -160,7 +135,7 @@ public class ConfigureWidgetActivity extends Activity {
             e.printStackTrace();
             throw new RuntimeException(e);
         }
-    };
+    }
 
     private void storeCredentials(String username, String password) {
         try {
