@@ -9,6 +9,7 @@
 
 package com.hpp3.smartrentwidget;
 
+import android.content.Context;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -19,9 +20,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.CompletableFuture;
 
 import androidx.annotation.NonNull;
+import androidx.security.crypto.EncryptedSharedPreferences;
 import okhttp3.FormBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -48,12 +49,28 @@ public class SmartRentClient {
     private final String password;
     private String token;
 
-    public SmartRentClient(String email, String password) {
-        this.email = email;
-        this.password = password;
-        this.token = fetchToken();
+    private static volatile SmartRentClient instance;
+
+    private SmartRentClient(Context context) {
+        EncryptedSharedPreferences preferences = CredentialManager.getInstance(context).getEncryptedSharedPreferences();
+        this.email = preferences.getString("username", "");
+        this.password = preferences.getString("password", "");
+        fetchToken();
     }
-    private String fetchToken() {
+
+    public static SmartRentClient getInstance(Context context) {
+        if (instance == null) {
+            synchronized (SmartRentClient.class) {
+                if (instance == null) {
+                    instance = new SmartRentClient(context);
+                }
+            }
+        }
+        return instance;
+    }
+
+    private void fetchToken() {
+        Log.i("SmartRentClient", "fetchToken: fetchingToken");
         RequestBody body = new FormBody.Builder()
                 .add("email", email)
                 .add("password", password)
@@ -68,7 +85,6 @@ public class SmartRentClient {
             if (response.isSuccessful()) {
                 JSONObject jsonResponse = new JSONObject(response.body().string());
                 this.token = jsonResponse.getString("access_token");
-                return this.token;
             } else {
                 throw new RuntimeException("Failed to fetch the token");
             }
@@ -135,32 +151,32 @@ public class SmartRentClient {
     }
 
     public void sendCommandAsync(int deviceId, String attributeName, String value, Runnable success, Runnable failure) {
-        CompletableFuture.runAsync(() -> {
-            String payload = String.format(Locale.US, COMMAND_PAYLOAD, deviceId, deviceId, attributeName, value);
-            try {
-                sendPayload(deviceId, payload, success, failure);
-            } catch (Exception e) {
-                fetchToken();
-                sendPayload(deviceId, payload, success, failure);
-            }
-        });
-    }
-    private void sendPayload(int deviceId, String payload, Runnable success, Runnable failure) {
-        String uri = String.format(Locale.US, SMARTRENT_WEBSOCKET_URI, token);
+        String payload = String.format(Locale.US, COMMAND_PAYLOAD, deviceId, deviceId, attributeName, value);
         String joiner = String.format(Locale.US, JOINER_PAYLOAD, deviceId);
+        Runnable retry = () -> {
+            fetchToken();
+            sendPayload(deviceId, payload, joiner, success, failure);
+        };
+        sendPayload(deviceId, payload, joiner, success, retry);
+    }
+    private void sendPayload(int deviceId, String payload, String joiner, Runnable success, Runnable failure) {
+        String uri = String.format(Locale.US, SMARTRENT_WEBSOCKET_URI, token);
         Request request = new Request.Builder().url(uri).build();
         httpClient.newWebSocket(request, new WebSocketListener() {
             int counter = 0;
             boolean failed = false;
-            @Override
-            public void onOpen(@NonNull WebSocket webSocket, @NonNull Response response) {
-                super.onOpen(webSocket, response);
+            private void sendPayload(@NonNull WebSocket webSocket) {
                 Log.i("onOpen", joiner);
                 Log.i("onOpen", payload);
                 this.counter = 0;
                 this.failed = false;
                 webSocket.send(joiner);
                 webSocket.send(payload);
+            }
+            @Override
+            public void onOpen(@NonNull WebSocket webSocket, @NonNull Response response) {
+                super.onOpen(webSocket, response);
+                sendPayload(webSocket);
             }
 
             private boolean isPhxReply(String message) {
@@ -208,10 +224,12 @@ public class SmartRentClient {
                         this.counter += 1;
                         if (this.counter == 2) {
                             success.run();
+                            webSocket.close(1000, "Success");
                         }
                     } else {
                         if (!failed) {
                             failure.run();
+                            webSocket.close(1000, text);
                             failed = true;
                         }
                     }
@@ -223,6 +241,7 @@ public class SmartRentClient {
                 super.onFailure(webSocket, t, response);
                 Log.i("onFailure", "failure: " + t + response);
                 failure.run();
+                webSocket.close(1000, "Failed to connect");
             }
         });
     }

@@ -16,65 +16,75 @@ import android.widget.RemoteViews;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
-import androidx.security.crypto.EncryptedSharedPreferences;
-
 public class WidgetClickedReceiver extends AppWidgetProvider {
     private final Executor executor = Executors.newSingleThreadExecutor();
     private static final String TAG = "WidgetClickedReceiver";
     private static final String WIDGET_CLICKED_ACTION = "com.hpp3.smartrentwidget.WIDGET_CLICKED";
 
-    public void logIntentInfo(Intent intent) {
+    public void logIntentInfo(Context context, Intent intent) {
         if (intent == null) {
-            Log.i("IntentLogger", "Received null intent");
+            FileLogger.log(context, "IntentLogger", "Received null intent");
             return;
         }
 
-        Log.i("IntentLogger", "=== NEW INTENT ===");
+        StringBuilder logMessage = new StringBuilder();
+        logMessage.append("=== NEW INTENT ===\n");
+
         // Log Action
         String action = intent.getAction();
-        Log.i("IntentLogger", "Action: " + (action != null ? action : "null"));
+        logMessage.append("Action: ").append(action != null ? action : "null").append("\n");
 
         // Log Data
         String dataString = intent.getDataString();
-        Log.i("IntentLogger", "Data: " + (dataString != null ? dataString : "null"));
+        logMessage.append("Data: ").append(dataString != null ? dataString : "null").append("\n");
 
         // Log Categories
         if (intent.getCategories() != null) {
             for (String category : intent.getCategories()) {
-                Log.i("IntentLogger", "Category: " + category);
+                logMessage.append("Category: ").append(category).append("\n");
             }
         } else {
-            Log.i("IntentLogger", "No categories");
+            logMessage.append("No categories\n");
         }
 
         // Log Extras
         Bundle extras = intent.getExtras();
         if (extras != null) {
             for (String key : extras.keySet()) {
-                Log.i("IntentLogger", "Extra key: " + key + " -> value: " + extras.get(key));
+                logMessage.append("Extra key: ").append(key).append(" -> value: ").append(extras.get(key)).append("\n");
             }
         } else {
-            Log.i("IntentLogger", "No extras");
+            logMessage.append("No extras\n");
+        }
+        if (action.equals(AppWidgetManager.ACTION_APPWIDGET_OPTIONS_CHANGED)) {
+            Bundle appWidgetOptions = intent.getBundleExtra(AppWidgetManager.EXTRA_APPWIDGET_OPTIONS);
+            if (appWidgetOptions != null) {
+                for (String key : appWidgetOptions.keySet()) {
+                    logMessage.append("Options key: ").append(key).append(" -> value: ").append(appWidgetOptions.get(key)).append("\n");
+                }
+            }
         }
 
         // Log Flags (if any)
         int flags = intent.getFlags();
         if (flags != 0) {
-            Log.i("IntentLogger", "Flags: " + Integer.toBinaryString(flags));
+            logMessage.append("Flags: ").append(Integer.toBinaryString(flags)).append("\n");
         } else {
-            Log.i("IntentLogger", "No flags");
+            logMessage.append("No flags\n");
         }
 
         // Log Component (if any)
         if (intent.getComponent() != null) {
-            Log.i("IntentLogger", "Component: " + intent.getComponent().toString());
+            logMessage.append("Component: ").append(intent.getComponent().toString()).append("\n");
         }
-        Log.i("IntentLogger", "=== END OF INTENT ===");
+        logMessage.append("=== END OF INTENT ===");
+
+        FileLogger.log(context, "IntentLogger", logMessage.toString());
     }
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        logIntentInfo(intent);
+        logIntentInfo(context, intent);
         super.onReceive(context, intent);
         if (WIDGET_CLICKED_ACTION.equals(intent.getAction())) {
             int appWidgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID);
@@ -138,11 +148,8 @@ public class WidgetClickedReceiver extends AppWidgetProvider {
     private void makeApiCall(Context context, int appWidgetId, String lockName, int lockId) {
         executor.execute(() -> {
             try {
-                EncryptedSharedPreferences encryptedSharedPreferences = ConfigureWidgetActivity.getEncryptedSharedPreferences(context);
-                String username = encryptedSharedPreferences.getString("username", "");
-                String password = encryptedSharedPreferences.getString("password", "");
                 showBusyIndicator(context, appWidgetId);
-                SmartRentClient client = new SmartRentClient(username, password);
+                SmartRentClient client = SmartRentClient.getInstance(context);
                 client.sendCommandAsync(lockId, "locked", "false",
                         () -> flashText(context, appWidgetId, lockName, "✔️"),
                         () -> flashText(context, appWidgetId, lockName, "❌"));

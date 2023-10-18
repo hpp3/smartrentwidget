@@ -20,12 +20,11 @@ import org.json.JSONException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 import androidx.security.crypto.EncryptedSharedPreferences;
-import androidx.security.crypto.MasterKey;
 
 public class ConfigureWidgetActivity extends Activity {
     private EditText usernameEditText;
@@ -36,7 +35,7 @@ public class ConfigureWidgetActivity extends Activity {
     int appWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
     private static final String TAG = "ConfigureWidgetActivity";
 
-    private final Executor executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -60,7 +59,7 @@ public class ConfigureWidgetActivity extends Activity {
             return;
         }
 
-        EncryptedSharedPreferences encryptedSharedPreferences = getEncryptedSharedPreferences(this);
+        EncryptedSharedPreferences encryptedSharedPreferences = CredentialManager.getInstance(this).getEncryptedSharedPreferences();
         usernameEditText.setText(encryptedSharedPreferences.getString("username", ""));
         passwordEditText.setText(encryptedSharedPreferences.getString("password", ""));
 
@@ -87,16 +86,16 @@ public class ConfigureWidgetActivity extends Activity {
             intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, new int[]{appWidgetId});
             sendBroadcast(intent);
             setResult(RESULT_OK, resultValue);
+            executor.shutdown();
             finish();
         });
     }
 
     public void onLoginClicked(String username, String password) {
-        // Store credentials securely
-        storeCredentials(username, password);
+        CredentialManager.getInstance(this).storeCredentials(username, password);
         executor.execute(() -> {
             try {
-                SmartRentClient client = new SmartRentClient(username, password);
+                SmartRentClient client = SmartRentClient.getInstance(getApplicationContext());
                 ArrayList<SmartRentLock> locks = client.getDevicesData().stream().filter(device -> {
                     try {
                         return device.get("type").equals("entry_control");
@@ -117,38 +116,4 @@ public class ConfigureWidgetActivity extends Activity {
             }
         });
     }
-
-    public static EncryptedSharedPreferences getEncryptedSharedPreferences(Context ctx) {
-        try {
-            MasterKey masterKey = new MasterKey.Builder(ctx)
-                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                    .build();
-
-            return (EncryptedSharedPreferences) EncryptedSharedPreferences.create(
-                    ctx,
-                    "encrypted_prefs",
-                    masterKey,
-                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            );
-        } catch (Exception e) {
-            e.printStackTrace();
-            throw new RuntimeException(e);
-        }
-    }
-
-    private void storeCredentials(String username, String password) {
-        try {
-            EncryptedSharedPreferences encryptedSharedPreferences = getEncryptedSharedPreferences(this);
-
-            encryptedSharedPreferences.edit()
-                    .putString("username", username)
-                    .putString("password", password)
-                    .apply();
-        } catch (Exception e) {
-            // Handle exceptions here (e.g., show error message or log the error)
-            e.printStackTrace();
-        }
-    }
-
 }
