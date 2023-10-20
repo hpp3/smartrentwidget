@@ -21,70 +21,8 @@ public class WidgetClickedReceiver extends AppWidgetProvider {
     private static final String TAG = "WidgetClickedReceiver";
     private static final String WIDGET_CLICKED_ACTION = "com.hpp3.smartrentwidget.WIDGET_CLICKED";
 
-    public void logIntentInfo(Context context, Intent intent) {
-        if (intent == null) {
-            FileLogger.log(context, "IntentLogger", "Received null intent");
-            return;
-        }
-
-        StringBuilder logMessage = new StringBuilder();
-        logMessage.append("=== NEW INTENT ===\n");
-
-        // Log Action
-        String action = intent.getAction();
-        logMessage.append("Action: ").append(action != null ? action : "null").append("\n");
-
-        // Log Data
-        String dataString = intent.getDataString();
-        logMessage.append("Data: ").append(dataString != null ? dataString : "null").append("\n");
-
-        // Log Categories
-        if (intent.getCategories() != null) {
-            for (String category : intent.getCategories()) {
-                logMessage.append("Category: ").append(category).append("\n");
-            }
-        } else {
-            logMessage.append("No categories\n");
-        }
-
-        // Log Extras
-        Bundle extras = intent.getExtras();
-        if (extras != null) {
-            for (String key : extras.keySet()) {
-                logMessage.append("Extra key: ").append(key).append(" -> value: ").append(extras.get(key)).append("\n");
-            }
-        } else {
-            logMessage.append("No extras\n");
-        }
-        if (action.equals(AppWidgetManager.ACTION_APPWIDGET_OPTIONS_CHANGED)) {
-            Bundle appWidgetOptions = intent.getBundleExtra(AppWidgetManager.EXTRA_APPWIDGET_OPTIONS);
-            if (appWidgetOptions != null) {
-                for (String key : appWidgetOptions.keySet()) {
-                    logMessage.append("Options key: ").append(key).append(" -> value: ").append(appWidgetOptions.get(key)).append("\n");
-                }
-            }
-        }
-
-        // Log Flags (if any)
-        int flags = intent.getFlags();
-        if (flags != 0) {
-            logMessage.append("Flags: ").append(Integer.toBinaryString(flags)).append("\n");
-        } else {
-            logMessage.append("No flags\n");
-        }
-
-        // Log Component (if any)
-        if (intent.getComponent() != null) {
-            logMessage.append("Component: ").append(intent.getComponent().toString()).append("\n");
-        }
-        logMessage.append("=== END OF INTENT ===");
-
-        FileLogger.log(context, "IntentLogger", logMessage.toString());
-    }
-
     @Override
     public void onReceive(Context context, Intent intent) {
-        logIntentInfo(context, intent);
         super.onReceive(context, intent);
         if (WIDGET_CLICKED_ACTION.equals(intent.getAction())) {
             int appWidgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID);
@@ -94,25 +32,34 @@ public class WidgetClickedReceiver extends AppWidgetProvider {
         }
     }
 
+    private void updateAppWidget(Context context, AppWidgetManager appWidgetManager, int appWidgetId) {
+        SmartRentLock lock = LockWidgetManager.loadLockConfiguration(context, appWidgetId);
+        if (lock == null) {
+            return;
+        }
+        RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.lock_widget);
+        views.setTextViewText(R.id.lockButton, lock.getNameShort());
+
+        Intent intent = new Intent(context, WidgetClickedReceiver.class);
+        intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId);
+        intent.setAction(WIDGET_CLICKED_ACTION);
+        PendingIntent pendingIntent = PendingIntent.getBroadcast(context, appWidgetId, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        views.setOnClickPendingIntent(R.id.lockButton, pendingIntent);
+        appWidgetManager.updateAppWidget(appWidgetId, views);
+    }
+
+    @Override
+    public void onAppWidgetOptionsChanged(Context context, AppWidgetManager appWidgetManager, int appWidgetId, Bundle newOptions) {
+        updateAppWidget(context, appWidgetManager, appWidgetId);
+    }
+
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
         for (int appWidgetId : appWidgetIds) {
             Log.i(TAG, "onUpdate: updating " + appWidgetId);
-            SmartRentLock lock = LockWidgetManager.loadLockConfiguration(context, appWidgetId);
-            if (lock == null) {
-                return;
-            }
-            RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.lock_widget);
-            views.setTextViewText(R.id.lockButton, lock.getNameShort());
-
-            Intent intent = new Intent(context, WidgetClickedReceiver.class);
-            intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId);
-            intent.setAction(WIDGET_CLICKED_ACTION);
-            PendingIntent pendingIntent = PendingIntent.getBroadcast(context, appWidgetId, intent,
-                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
-            views.setOnClickPendingIntent(R.id.lockButton, pendingIntent);
-            appWidgetManager.updateAppWidget(appWidgetId, views);
+            updateAppWidget(context, appWidgetManager, appWidgetId);
         }
     }
 
